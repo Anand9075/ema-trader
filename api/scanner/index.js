@@ -1,7 +1,9 @@
 "use strict";
+
 const { allowCors }           = require("../../lib/cors");
 const { connectDB, Alert }    = require("../../lib/db");
-const { requireAuth }         = require("../../lib/auth");
+// Removed {} around requireAuth to fix the "not a function" error
+const requireAuth             = require("../../lib/auth"); 
 const { runScanner }          = require("../../lib/strategy");
 
 function withTimeout(p, ms, msg) {
@@ -29,7 +31,7 @@ async function handler(req, res) {
       try {
         await connectDB();
         await Alert().create({
-          userId:   req.userId,
+          userId:   req.userId, // Populated by requireAuth middleware
           type:     "SELECTION",
           symbol:   "SCANNER",
           message:  `Scan complete: ${result.picks.map(p => p.name).join(" | ")} (${result.elapsed}s)`,
@@ -48,6 +50,6 @@ async function handler(req, res) {
     });
   }
 }
-module.exports = allowCors(requireAuth(handler));
 
-export default handler;
+// Export ONLY using CommonJS since you are using require() at the top
+module.exports = allowCors(requireAuth(handler));
