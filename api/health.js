@@ -1,8 +1,11 @@
 "use strict";
+
 const { allowCors } = require("../lib/cors");
 
 async function handler(req, res) {
-  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   const dbOk    = !!process.env.MONGODB_URI;
   const jwtOk   = !!process.env.JWT_SECRET;
@@ -10,6 +13,7 @@ async function handler(req, res) {
 
   let yfOk  = false;
   let yfErr = null;
+  
   try {
     const { fetchQuote } = require("../lib/yahoo");
     const q = await Promise.race([
@@ -23,7 +27,8 @@ async function handler(req, res) {
 
   const status = (dbOk && jwtOk && yfOk) ? "ok" : "degraded";
 
-  return res.json({
+  // Respond with a 200 OK and the detailed diagnostic JSON
+  return res.status(200).json({
     status,
     version:  "1.0.0",
     time:     new Date().toISOString(),
@@ -38,10 +43,6 @@ async function handler(req, res) {
     region: process.env.VERCEL_REGION || "local",
   });
 }
-module.exports = allowCors(handler);
 
-// api/health.js
-export default function handler(req, res) {
-  // A simple 200 OK response for health checks
-  res.status(200).json({ status: 'ok', message: 'Trader API is healthy' });
-}
+// Ensure we only export ONCE using CommonJS
+module.exports = allowCors(handler);
