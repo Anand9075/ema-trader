@@ -1,6 +1,6 @@
 "use strict";
 
-const { allowCors } = require("../lib/cors");
+const allowCors  = require("../lib/cors");
 
 async function handler(req, res) {
   if (req.method !== "GET") {
