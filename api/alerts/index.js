@@ -1,5 +1,5 @@
 "use strict";
-const  allowCors            = require("../../lib/cors");
+const { allowCors }           = require("../../lib/cors");
 const { connectDB, Alert }    = require("../../lib/db");
 const  requireAuth         = require("../../lib/auth");
 const { sendAlert: sendEmail }= require("../../lib/email");
