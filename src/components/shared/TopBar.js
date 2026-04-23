@@ -2,136 +2,104 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { searchAPI, pricesAPI } from '../../api';
-import { isMarketOpen, fmt } from '../../utils/helpers';
-
-function SearchDrop({ results, loading, onSelect }) {
-  if (!loading && results.length === 0) return null;
-  return (
-    <div className="search-dropdown">
-      {loading && (
-        <div style={{ padding: '12px 14px', color: 'var(--text-muted)', fontSize: 12 }}>Searching...</div>
-      )}
-      {results.map(r => (
-        <div key={r.symbol} className="search-item" onMouseDown={() => onSelect(r)}>
-          <div>
-            <div className="search-ticker">{r.symbol.replace('.NS', '')}</div>
-            <div className="search-name">{r.name}</div>
-          </div>
-          <span className="search-badge" style={{ background: 'var(--bg-card2)', color: 'var(--text-muted)' }}>
-            {r.sector || 'NSE'}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+import { IconSearch } from './Icons';
+import { fmt, isMarketOpen } from '../../utils/helpers';
 
 export default function TopBar({ onStockSelect, alertCount = 0 }) {
   const { user } = useAuth();
-  const navigate = useNavigate();
-  const [query,    setQuery]   = useState('');
-  const [results,  setResults] = useState([]);
-  const [loading,  setLoading] = useState(false);
-  const [showDrop, setShowDrop]= useState(false);
-  const debounceRef = useRef(null);
-  const wrapRef     = useRef(null);
-  const marketOpen  = isMarketOpen();
+  const navigate  = useNavigate();
+  const [query,   setQuery]   = useState('');
+  const [results, setResults] = useState([]);
+  const [sLoad,   setSLoad]   = useState(false);
+  const [showDD,  setShowDD]  = useState(false);
+  const wrapRef = useRef(null);
+  const debRef  = useRef(null);
+  const mktOpen = isMarketOpen();
+  const initials = (user?.name || 'U').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
 
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const h = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setShowDrop(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    const fn = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setShowDD(false); };
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
   }, []);
 
-  const handleInput = (e) => {
-    const val = e.target.value;
+  const handleSearch = val => {
     setQuery(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (val.length < 2) { setResults([]); setShowDrop(false); return; }
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const d = await searchAPI.query(val);
-        setResults(d.results || []);
-        setShowDrop(true);
-      } catch { setResults([]); }
-      finally { setLoading(false); }
+    if (debRef.current) clearTimeout(debRef.current);
+    if (val.length < 2) { setResults([]); setShowDD(false); return; }
+    debRef.current = setTimeout(async () => {
+      setSLoad(true);
+      try { const d = await searchAPI.query(val); setResults(d.results || []); setShowDD(true); }
+      catch { setResults([]); }
+      finally { setSLoad(false); }
     }, 350);
   };
 
-  const handleSelect = async (stock) => {
-    setQuery('');
-    setShowDrop(false);
-    setResults([]);
-    let enriched = stock;
+  const handleSelect = async stock => {
+    setQuery(''); setShowDD(false); setResults([]);
     try {
-      const pData = await pricesAPI.getOne(stock.symbol);
-      if (pData?.price) enriched = { ...stock, ...pData };
-    } catch {}
-    if (onStockSelect) onStockSelect(enriched);
+      const p = await pricesAPI.get([stock.symbol]);
+      onStockSelect?.({ ...stock, ...p?.prices?.[stock.symbol] });
+    } catch { onStockSelect?.(stock); }
   };
-
-  const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
   return (
     <div className="topbar">
-      {/* Logo */}
-      <div className="topbar-logo">
-        <div className="topbar-logo-mark">📈</div>
+      {/* Brand */}
+      <div className="tb-brand">
+        <div className="tb-brand-icon">📈</div>
         <div>
-          <div className="topbar-title">EMA</div>
-          <div className="topbar-subtitle">Trading Terminal</div>
+          <div className="tb-brand-name">EMA</div>
+          <div className="tb-brand-sub">Trading Terminal</div>
         </div>
       </div>
 
       {/* Search */}
-      <div className="topbar-search" style={{ position: 'relative' }} ref={wrapRef}>
-        <svg className="search-icon" style={{ position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',width:14,height:14,stroke:'var(--text-muted)',fill:'none',strokeWidth:1.8 }} viewBox="0 0 24 24">
-          <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/>
-        </svg>
+      <div className="tb-search" ref={wrapRef} style={{ position:'relative' }}>
+        <IconSearch className="tb-search-icon" style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', width:14, height:14, color:'var(--text3)' }}/>
         <input
-          className="form-input"
-          style={{ paddingLeft: 34 }}
           value={query}
-          onChange={handleInput}
-          onFocus={() => { if (results.length) setShowDrop(true); }}
+          onChange={e => handleSearch(e.target.value)}
+          onFocus={() => results.length && setShowDD(true)}
           placeholder="Search NSE stocks..."
+          style={{ paddingLeft:34 }}
         />
-        <SearchDrop results={results} loading={loading} onSelect={handleSelect}/>
+        {showDD && (
+          <div className="search-dd">
+            {sLoad && <div style={{ padding:'10px 14px', fontSize:11, color:'var(--text3)' }}>Searching...</div>}
+            {results.map(r => (
+              <div key={r.symbol} className="search-dd-item" onMouseDown={() => handleSelect(r)}>
+                <div><div className="s-sym">{r.symbol.replace('.NS','')}</div><div className="s-name">{r.name}</div></div>
+                <span className="s-tag">{r.sector || 'NSE'}</span>
+              </div>
+            ))}
+            {!sLoad && results.length === 0 && query.length >= 2 && (
+              <div style={{ padding:'10px 14px', fontSize:11, color:'var(--text3)' }}>No results for "{query}"</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Nav */}
-      <nav className="topbar-nav">
-        {[['/', 'Dashboard'], ['/portfolio', 'Portfolio'], ['/scanner', 'Scanner'],
-          ['/history', 'History'], ['/alerts', 'Alerts']].map(([path, label]) => (
-          <button key={path} className="topbar-nav-btn" onClick={() => navigate(path)}>
-            {label === 'Alerts' && alertCount > 0 && (
-              <span style={{ width:6,height:6,borderRadius:'50%',background:'var(--red)',display:'inline-block' }}/>
-            )}
-            {label}
-          </button>
+      <nav className="tb-nav">
+        {[['/', 'Dashboard'],['/portfolio','Portfolio'],['/scanner','Scanner'],
+          ['/alerts', alertCount > 0 ? `Alerts (${alertCount})` : 'Alerts']
+        ].map(([p,l]) => (
+          <button key={p} className="tb-nav-btn" onClick={() => navigate(p)}>{l}</button>
         ))}
       </nav>
 
-      {/* Right side */}
-      <div className="topbar-right">
-        <div className={`live-badge ${marketOpen ? '' : 'closed'}`}
-          style={!marketOpen ? { background:'rgba(148,163,184,0.1)',borderColor:'rgba(148,163,184,0.2)',color:'var(--text-muted)' } : {}}>
-          <span className="live-dot" style={!marketOpen ? { background:'var(--text-muted)',animation:'none' } : {}}/>
-          {marketOpen ? 'Live' : 'Closed'}
-        </div>
-        <div onClick={() => navigate('/settings')} className="user-avatar" title={user?.name} style={{ cursor:'pointer' }}>
-          {initials}
+      {/* Right */}
+      <div className="tb-right">
+        <div className="live-pill">
+          <span className="live-dot"/>
+          {mktOpen ? 'Live' : 'Closed'}
         </div>
         <div style={{ textAlign:'right' }}>
-          <div style={{ fontSize:12,fontWeight:600,color:'var(--text-primary)' }}>
-            {user?.name?.split(' ')[0] || 'Trader'}
-          </div>
-          <div style={{ fontSize:10,color:'var(--text-muted)' }}>
-            {fmt(user?.capital || 100000)}
-          </div>
+          <div style={{ fontSize:12, fontWeight:700, color:'var(--white)' }}>{user?.name?.split(' ')[0]}</div>
+          <div style={{ fontSize:10, color:'var(--text3)' }}>{fmt(user?.capital || 100000)}</div>
         </div>
+        <div className="avatar" onClick={() => navigate('/settings')} title={user?.name}>{initials}</div>
       </div>
     </div>
   );

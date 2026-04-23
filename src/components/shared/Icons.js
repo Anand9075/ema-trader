@@ -1,36 +1,21 @@
 import React from 'react';
-
-const Svg = ({ d, children, ...p }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    {children || (Array.isArray(d)
-      ? d.map((pd, i) => <path key={i} d={pd}/>)
-      : <path d={d}/>)}
-  </svg>
-);
-
-export const IconPlus         = p => <Svg d="M12 5v14M5 12h14" {...p}/>;
-export const IconX            = p => <Svg d="M18 6L6 18M6 6l12 12" {...p}/>;
-export const IconEdit         = p => <Svg d={["M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7","M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"]} {...p}/>;
-export const IconTrash        = p => <Svg d={["M3 6h18","M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"]} {...p}/>;
-export const IconRefresh      = p => <Svg d={["M23 4v6h-6","M1 20v-6h6","M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"]} {...p}/>;
-export const IconChevronLeft  = p => <Svg d="M15 18l-6-6 6-6" {...p}/>;
-export const IconChevronRight = p => <Svg d="M9 18l6-6-6-6" {...p}/>;
-export const IconChevronDown  = p => <Svg d="M6 9l6 6 6-6" {...p}/>;
-export const IconFilter       = p => <Svg d="M22 3H2l8 9.46V19l4 2v-8.54L22 3" {...p}/>;
-export const IconSearch       = p => <Svg d={["M11 19a8 8 0 100-16 8 8 0 000 16z","M21 21l-4.35-4.35"]} {...p}/>;
-export const IconTrendUp      = p => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-    <polyline points="17 6 23 6 23 12"/>
-  </svg>
-);
-export const IconTrendDown    = p => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/>
-    <polyline points="17 18 23 18 23 12"/>
-  </svg>
-);
-export const IconMail         = p => <Svg d={["M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z","M22 6l-10 7L2 6"]} {...p}/>;
-export const IconUser         = p => <Svg d={["M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2","M12 11a4 4 0 100-8 4 4 0 000 8z"]} {...p}/>;
-export const IconStar         = p => <Svg d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" {...p}/>;
+const S = ({ d, ...p }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>{Array.isArray(d)?d.map((x,i)=><path key={i} d={x}/>):<path d={d}/>}</svg>;
+export const IconDash     = p => <S d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" {...p}/>;
+export const IconPortfolio= p => <S d={["M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z","M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"]} {...p}/>;
+export const IconScanner  = p => <S d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" {...p}/>;
+export const IconHistory  = p => <S d={["M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10","M12 6v6l4 2"]} {...p}/>;
+export const IconAlerts   = p => <S d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" {...p}/>;
+export const IconCalendar = p => <S d={["M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z","M16 2v4M8 2v4M3 10h18"]} {...p}/>;
+export const IconSettings = p => <S d={["M12 15a3 3 0 100-6 3 3 0 000 6z","M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"]} {...p}/>;
+export const IconSearch   = p => <S d={["M11 19a8 8 0 100-16 8 8 0 000 16z","M21 21l-4.35-4.35"]} {...p}/>;
+export const IconPlus     = p => <S d="M12 5v14M5 12h14" {...p}/>;
+export const IconX        = p => <S d="M18 6L6 18M6 6l12 12" {...p}/>;
+export const IconEdit     = p => <S d={["M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7","M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"]} {...p}/>;
+export const IconTrash    = p => <S d={["M3 6h18","M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"]} {...p}/>;
+export const IconLogout   = p => <S d={["M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4","M16 17l5-5-5-5","M21 12H9"]} {...p}/>;
+export const IconRefresh  = p => <S d={["M23 4v6h-6","M1 20v-6h6","M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"]} {...p}/>;
+export const IconTrendUp  = p => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...p}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>;
+export const IconTrendDown= p => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...p}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>;
+export const IconChevL    = p => <S d="M15 18l-6-6 6-6" {...p}/>;
+export const IconChevR    = p => <S d="M9 18l6-6-6-6" {...p}/>;
+export const IconChevD    = p => <S d="M6 9l6 6 6-6" {...p}/>;

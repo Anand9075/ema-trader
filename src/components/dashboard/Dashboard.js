@@ -1,259 +1,186 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { usePolling, usePrices } from '../../hooks/usePolling';
 import { portfolioAPI, alertsAPI } from '../../api';
-import { fmt, fmtN, pct, pnlClass, pnlColor, SECTOR_COLORS } from '../../utils/helpers';
-import { IconTrendUp, IconTrendDown, IconPlus, IconChevronRight } from '../shared/Icons';
-import PortfolioChart from './PortfolioChart';
+import { usePolling, usePrices } from '../../hooks/usePolling';
+import { fmt, fmtN, pct } from '../../utils/helpers';
+import { IconPlus, IconTrendUp, IconTrendDown, IconChevR } from '../shared/Icons';
+import PortfolioChart    from './PortfolioChart';
 import PortfolioBreakdown from './PortfolioBreakdown';
-import AddTradeModal from '../portfolio/AddTradeModal';
+import AddTradeModal     from '../portfolio/AddTradeModal';
 
-function StatCard({ label, value, sub, color, icon: Icon }) {
+function PriceBar({ entry, sl, target, cur }) {
+  const range = target - sl;
+  if (range <= 0) return null;
+  const pos  = Math.min(100, Math.max(0, (cur - sl)   / range * 100));
+  const ePct = Math.min(100, Math.max(0, (entry - sl)  / range * 100));
+  const col  = cur >= entry ? 'var(--green)' : 'var(--red)';
   return (
-    <div className="stat-card" style={{ borderColor: color ? `${color}30` : undefined }}>
-      <div className="flex items-center justify-between mb-8">
-        <div className="stat-label">{label}</div>
-        {Icon && <Icon style={{ width: 16, height: 16, color: 'var(--text-muted)' }}/>}
+    <div className="pbar-wrap">
+      <div className="pbar-track">
+        <div className="pbar-fill" style={{ width:`${pos}%`, background:col }}/>
+        <div className="pbar-entry" style={{ left:`${ePct}%` }}/>
+        <div className="pbar-dot"   style={{ left:`${pos}%`, background:col }}/>
       </div>
-      <div className="stat-value" style={{ color: color || undefined }}>{value}</div>
-      {sub && <div className="stat-sub" style={{ color: color || 'var(--text-muted)' }}>{sub}</div>}
+      <div className="pbar-labels">
+        <span style={{ color:'var(--red)' }}>SL {fmt(sl)}</span>
+        <span>Entry {fmt(entry)}</span>
+        <span style={{ color:'var(--green)' }}>T {fmt(target)}</span>
+      </div>
     </div>
   );
 }
 
-function ActivePositionRow({ trade, prices }) {
-  const q      = prices[trade.symbol] || {};
-  const cur    = q.price || trade.currentPrice || trade.entry;
-  const pnl    = (cur - trade.entry) * (trade.qty || 1);
-  const pnlPct = Number(pct(cur, trade.entry));
-  const isUp   = pnl >= 0;
-  const range  = trade.target - trade.sl;
-  const barPos = range > 0 ? Math.min(100, Math.max(0, (cur - trade.sl) / range * 100)) : 50;
-  const entPos = range > 0 ? Math.min(100, Math.max(0, (trade.entry - trade.sl) / range * 100)) : 50;
-
+function TradeRow({ trade, prices }) {
+  const q   = prices[trade.symbol || `${trade.name}.NS`] || {};
+  const cur = q.price || trade.currentPrice || trade.entry;
+  const pnl = (cur - trade.entry) * (trade.qty || 1);
+  const isUp= pnl >= 0;
   return (
-    <div style={{ borderBottom: '1px solid var(--border)' }}>
-      <div className="trade-row" style={{ paddingBottom: 4 }}>
+    <div style={{ borderBottom:'1px solid var(--border)' }}>
+      <div className="trade-row" style={{ paddingBottom:4 }}>
         <div>
-          <div className="trade-ticker">{trade.name}</div>
-          <div className="trade-meta">Entry ₹{trade.entry} · Target ₹{trade.target}</div>
+          <div className="trade-name">{trade.name}</div>
+          <div className="trade-meta">Entry {fmt(trade.entry)} · T {fmt(trade.target)}</div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="trade-price" id={`price-${(trade.symbol||'').replace(/[^a-z0-9]/gi,'-')}`}
-            style={{ color: isUp ? 'var(--green)' : 'var(--red)' }}>
+        <div style={{ textAlign:'right' }}>
+          <div id={`price-${(trade.symbol||'').replace(/[^a-z0-9]/gi,'-')}`}
+            style={{ fontWeight:700, fontFamily:'JetBrains Mono', fontSize:13, color:isUp?'var(--green)':'var(--red)' }}>
             {fmt(cur)}
           </div>
-          <div className="trade-pnl" style={{ color: isUp ? 'var(--green)' : 'var(--red)' }}>
-            {isUp ? '+' : ''}{fmt(Math.round(pnl))} ({isUp ? '+' : ''}{fmtN(pnlPct)}%)
+          <div style={{ fontSize:11, color:isUp?'var(--green)':'var(--red)' }}>
+            {isUp?'+':''}{fmt(Math.round(pnl))} ({isUp?'+':''}{fmtN(Number(pct(cur,trade.entry)))}%)
           </div>
         </div>
       </div>
-      {/* Price bar */}
-      <div className="price-bar-wrap" style={{ paddingTop: 0, paddingBottom: 8 }}>
-        <div className="price-bar-track" style={{ margin: '0 0 0 0' }}>
-          <div className="price-bar-fill" style={{ width: `${barPos}%`, background: isUp ? 'var(--green)' : 'var(--red)' }}/>
-          <div className="price-bar-dot" style={{ left: `${entPos}%`, background: 'var(--text-muted)', width: 6, height: 6 }}/>
-          <div className="price-bar-dot" style={{ left: `${barPos}%`, background: isUp ? 'var(--green)' : 'var(--red)', width: 8, height: 8 }}/>
-        </div>
-      </div>
+      <PriceBar entry={trade.entry} sl={trade.sl} target={trade.target} cur={cur}/>
     </div>
   );
 }
 
-function AlertPreview({ alerts }) {
+export default function Dashboard() {
   const navigate = useNavigate();
-  return (
-    <div className="card">
-      <div className="card-header">
-        <span className="card-title">Alerts</span>
-        <button className="btn btn-sm btn-ghost" onClick={() => navigate('/alerts')}>
-          See all <IconChevronRight style={{ width: 12, height: 12 }}/>
-        </button>
-      </div>
-      <div>
-        {(!alerts || alerts.length === 0) && (
-          <div className="loading-center" style={{ padding: '24px', fontSize: 11 }}>No recent alerts</div>
-        )}
-        {(alerts || []).slice(0, 4).map(a => {
-          const isGood = ['TARGET', 'BUY'].includes(a.type);
-          return (
-            <div key={a._id} className="alert-item">
-              <div className={`alert-icon ${isGood ? 'success' : a.type === 'SL_HIT' ? 'danger' : 'info'}`}
-                style={{ fontSize: 12, fontWeight: 700 }}>
-                {isGood ? '★' : a.type === 'SL_HIT' ? '✕' : '●'}
-              </div>
-              <div className="alert-body">
-                <div className="alert-title">{a.symbol} — {a.type.replace('_', ' ')}</div>
-                <div className="alert-meta">{a.message?.slice(0, 48)}{a.message?.length > 48 ? '...' : ''}</div>
-              </div>
-              <div className="alert-value">
-                <div className="alert-price" style={{ color: isGood ? 'var(--green)' : 'var(--red)' }}>
-                  {a.price ? fmt(a.price) : ''}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-export default function Dashboard({ onStockSelect }) {
-  const { user } = useAuth();
-  const navigate  = useNavigate();
   const [showAdd, setShowAdd] = useState(false);
-  const [prefill, setPrefill] = useState(null);
-
-  const { data: portfolio, loading: pLoad, refetch } = usePolling(portfolioAPI.stats, 30000, []);
+  const { data: portfolio, loading, refetch } = usePolling(portfolioAPI.stats, 30000, []);
   const { data: snapshots } = usePolling(portfolioAPI.snapshots, 300000, []);
   const { data: alertData  } = usePolling(() => alertsAPI.getAll(), 30000, []);
-
   const activeTrades = portfolio?.activeTrades || [];
   const symbols = activeTrades.map(t => t.symbol || `${t.name}.NS`).filter(Boolean);
   const { prices } = usePrices(symbols, 30000);
 
-  const handleAddFromSearch = useCallback((stock) => {
-    setPrefill({ symbol: stock.symbol, name: stock.symbol?.replace('.NS', ''), sector: stock.sector, entry: String(stock.price || ''), currentPrice: stock.price });
-    setShowAdd(true);
-  }, []);
+  if (loading) return <div className="loading-box"><div className="spinner"/><span>Loading portfolio...</span></div>;
 
-  if (pLoad) return <div className="loading-center"><div className="spinner"/><span>Loading portfolio...</span></div>;
-
-  const stats = portfolio || {};
-  const pnlUp = (stats.pnl || 0) >= 0;
-  const todayUp = (stats.todayPnl || 0) >= 0;
+  const p      = portfolio || {};
+  const pnlUp  = (p.pnl || 0) >= 0;
+  const tdUp   = (p.todayPnl || 0) >= 0;
+  const recentAlerts = (alertData || []).slice(0, 4);
 
   return (
     <>
-      {/* STAT CARDS */}
-      <div className="stat-cards">
-        <StatCard
-          label="Portfolio Value"
-          value={fmt(stats.current || 0)}
-          sub={`Invested ${fmt(stats.invested || 0)}`}
-          icon={IconTrendUp}
-        />
-        <StatCard
-          label="Total P&L"
-          value={`${pnlUp ? '+' : ''}${fmt(Math.round(stats.pnl || 0))}`}
-          sub={`${pnlUp ? '+' : ''}${fmtN(stats.pnlPct || 0)}% overall`}
-          color={pnlUp ? 'var(--green)' : 'var(--red)'}
-          icon={pnlUp ? IconTrendUp : IconTrendDown}
-        />
-        <StatCard
-          label="Today's P&L"
-          value={`${todayUp ? '+' : ''}${fmt(Math.round(stats.todayPnl || 0))}`}
-          sub={`${stats.activeTrades?.length || 0} active positions`}
-          color={todayUp ? 'var(--green)' : 'var(--red)'}
-          icon={todayUp ? IconTrendUp : IconTrendDown}
-        />
-        <StatCard
-          label="Win Rate"
-          value={`${stats.winRate || 0}%`}
-          sub={`${stats.wins || 0}W / ${stats.losses || 0}L · ${stats.closedTrades || 0} closed`}
-          color="var(--accent)"
-          icon={IconTrendUp}
-        />
+      {/* Stat Cards */}
+      <div className="stat-grid">
+        {[
+          { lbl:'Portfolio Value', val:fmt(p.current||0), sub:`Invested ${fmt(p.invested||0)}`, icon:IconTrendUp },
+          { lbl:'Total P&L', val:`${pnlUp?'+':''}${fmt(Math.round(p.pnl||0))}`, sub:`${pnlUp?'+':''}${fmtN(p.pnlPct||0)}% overall`, col:pnlUp?'var(--green)':'var(--red)', icon:pnlUp?IconTrendUp:IconTrendDown },
+          { lbl:"Today's P&L", val:`${tdUp?'+':''}${fmt(Math.round(p.todayPnl||0))}`, sub:`${activeTrades.length} active positions`, col:tdUp?'var(--green)':'var(--red)', icon:tdUp?IconTrendUp:IconTrendDown },
+          { lbl:'Win Rate', val:`${p.winRate||0}%`, sub:`${p.wins||0}W / ${p.losses||0}L · ${p.closedTrades||0} closed`, col:'var(--accent)', icon:IconTrendUp },
+        ].map(s => (
+          <div key={s.lbl} className="stat-card" style={{ borderColor: s.col ? `${s.col}28` : undefined }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+              <div className="stat-lbl">{s.lbl}</div>
+              <s.icon style={{ width:16, height:16, color:'var(--muted)' }}/>
+            </div>
+            <div className="stat-val" style={{ color:s.col }}>{s.val}</div>
+            <div className="stat-sub">{s.sub}</div>
+          </div>
+        ))}
       </div>
 
-      {/* MAIN GRID */}
       <div className="dash-grid">
-        {/* LEFT */}
         <div className="dash-left">
           {/* Active Positions */}
           <div className="card">
-            <div className="card-header">
+            <div className="card-hdr">
               <span className="card-title">Active Positions</span>
-              <div className="flex gap-8">
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {fmt(stats.current || 0)} · {pnlUp ? '+' : ''}{fmt(Math.round(stats.pnl || 0))} ({pnlUp?'+':''}{fmtN(stats.pnlPct||0)}%)
-                </span>
-                <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}>
-                  <IconPlus style={{ width: 12, height: 12 }}/> Add
-                </button>
+              <div style={{ display:'flex', gap:8 }}>
+                <span style={{ fontSize:11, color:'var(--muted)' }}>{fmt(p.current||0)} · {pnlUp?'+':''}{fmt(Math.round(p.pnl||0))}</span>
+                <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}><IconPlus style={{ width:11,height:11 }}/> Add</button>
               </div>
             </div>
-            {(!activeTrades || activeTrades.length === 0) && (
-              <div className="loading-center" style={{ padding: '24px' }}>
-                <div style={{ fontSize: 12 }}>No active positions</div>
-                <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)} style={{ marginTop: 8 }}>
-                  <IconPlus style={{ width: 12, height: 12 }}/> Add First Trade
-                </button>
-              </div>
-            )}
-            {activeTrades.map(t => (
-              <ActivePositionRow key={t._id} trade={t} prices={prices}/>
-            ))}
+            {activeTrades.length === 0
+              ? <div className="loading-box" style={{ padding:28 }}><div style={{ fontSize:12 }}>No active positions</div><button className="btn btn-primary btn-sm" onClick={()=>setShowAdd(true)} style={{ marginTop:8 }}><IconPlus style={{ width:11,height:11 }}/> Add First Trade</button></div>
+              : activeTrades.map(t => <TradeRow key={t._id} trade={t} prices={prices}/>)
+            }
           </div>
 
-          {/* Mid row: Chart + Breakdown */}
+          {/* Chart + Breakdown */}
           <div className="dash-mid">
-            {/* Portfolio Value Chart */}
             <div className="card">
-              <div className="card-header">
+              <div className="card-hdr">
                 <div>
-                  <div className="card-title">Total Value</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'JetBrains Mono', color: 'var(--text-primary)', marginTop: 2 }}>
-                    {fmt(stats.current || 0)}
-                    <span style={{ fontSize: 12, color: pnlUp ? 'var(--green)' : 'var(--red)', marginLeft: 8, fontFamily: 'Inter' }}>
-                      {pnlUp ? '+' : ''}{fmtN(stats.pnlPct || 0)}%
-                    </span>
+                  <div className="card-title">Portfolio Value</div>
+                  <div style={{ fontSize:19, fontWeight:700, fontFamily:'JetBrains Mono', marginTop:2 }}>
+                    {fmt(p.current||0)}
+                    <span style={{ fontSize:12, marginLeft:8, fontFamily:'Inter', color:pnlUp?'var(--green)':'var(--red)', fontWeight:600 }}>{pnlUp?'+':''}{fmtN(p.pnlPct||0)}%</span>
                   </div>
                 </div>
               </div>
-              <div style={{ padding: '0 16px 16px' }}>
-                <PortfolioChart snapshots={snapshots || []} currentValue={stats.current || 0}/>
+              <div style={{ padding:'0 16px 16px' }}>
+                <PortfolioChart snapshots={snapshots||[]} currentValue={p.current||0}/>
               </div>
             </div>
-
-            {/* Portfolio Breakdown */}
             <div className="card">
-              <div className="card-header">
-                <div className="card-title">Portfolio Breakdown</div>
-                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'JetBrains Mono', color: 'var(--text-primary)' }}>
-                  {fmt(stats.current || 0)}
-                </span>
-              </div>
+              <div className="card-hdr"><span className="card-title">Breakdown</span><span style={{ fontSize:12, fontWeight:700, fontFamily:'JetBrains Mono' }}>{fmt(p.current||0)}</span></div>
               <div className="card-body">
-                <PortfolioBreakdown sectorAllocation={stats.sectorAllocation || {}} total={stats.current || 0}/>
+                <PortfolioBreakdown sectorAllocation={p.sectorAllocation||{}} total={p.current||0}/>
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT */}
+        {/* Right panel */}
         <div className="dash-right">
-          {/* Scanner results preview */}
+          {/* Scanner shortcut */}
           <div className="card">
-            <div className="card-header">
-              <span className="card-title">Strategy Scanner</span>
-              <button className="btn btn-sm btn-ghost" onClick={() => navigate('/scanner')}>Run Scan</button>
+            <div className="card-hdr"><span className="card-title">Strategy Scanner</span></div>
+            <div style={{ padding:'10px 16px 16px', fontSize:11, color:'var(--muted)', lineHeight:1.7 }}>
+              Run the EMA 200 breakout scanner to find high-conviction NSE setups using ATR, Bollinger Bands, CUSUM, and ZigZag indicators.
             </div>
-            <div style={{ padding: '10px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
-              Run the EMA breakout scanner to find high-conviction setups matching your strategy.
-            </div>
-            <div style={{ padding: '0 16px 16px' }}>
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => navigate('/scanner')}>
+            <div style={{ padding:'0 16px 16px' }}>
+              <button className="btn btn-primary" style={{ width:'100%', justifyContent:'center' }} onClick={()=>navigate('/scanner')}>
                 Open Scanner →
               </button>
             </div>
           </div>
 
-          {/* Alerts */}
-          <AlertPreview alerts={alertData || []}/>
+          {/* Recent Alerts */}
+          <div className="card">
+            <div className="card-hdr">
+              <span className="card-title">Recent Alerts</span>
+              <button className="btn btn-sm btn-ghost" onClick={()=>navigate('/alerts')}>See all <IconChevR style={{ width:11,height:11 }}/></button>
+            </div>
+            {recentAlerts.length === 0
+              ? <div className="loading-box" style={{ padding:'20px' }}><div style={{ fontSize:11 }}>No alerts yet</div></div>
+              : recentAlerts.map(a => {
+                  const isGood = ['TARGET','BUY'].includes(a.type);
+                  return (
+                    <div key={a._id} className="alert-item">
+                      <div className={`alert-icon ${isGood?'success':a.type==='SL_HIT'?'danger':'info'}`} style={{ fontSize:12, fontWeight:700 }}>
+                        {isGood?'★':a.type==='SL_HIT'?'✕':'●'}
+                      </div>
+                      <div className="alert-body">
+                        <div className="alert-title">{a.symbol} — {a.type.replace('_',' ')}</div>
+                        <div className="alert-meta">{a.message?.slice(0,50)}{a.message?.length>50?'...':''}</div>
+                      </div>
+                      {a.price > 0 && <div style={{ fontSize:12, fontWeight:700, fontFamily:'JetBrains Mono', color:isGood?'var(--green)':'var(--red)', flexShrink:0 }}>{fmt(a.price)}</div>}
+                    </div>
+                  );
+                })
+            }
+          </div>
         </div>
       </div>
 
-      {/* Add Trade Modal */}
-      {showAdd && (
-        <AddTradeModal
-          prefill={prefill}
-          onClose={() => { setShowAdd(false); setPrefill(null); }}
-          onSaved={() => { setShowAdd(false); setPrefill(null); refetch(); }}
-        />
-      )}
+      {showAdd && <AddTradeModal onClose={()=>setShowAdd(false)} onSaved={()=>{ setShowAdd(false); refetch(); }}/>}
     </>
   );
 }
