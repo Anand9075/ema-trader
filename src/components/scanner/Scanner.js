@@ -123,13 +123,18 @@ export default function Scanner() {
   const [filter,  setFilter]  = useState('all');
   const { addToast } = useToast();
 
-  const run = async () => {
+  const run = async (refresh = false) => {
     setLoading(true); setError('');
     try {
-      const data = await scannerAPI.run();
+      const data = await scannerAPI.run(refresh);
       setResult(data);
-      addToast(`Scan complete — ${data.picks?.length||0} picks found`, 'success', `${data.totalScanned} stocks in ${data.elapsed}s`);
-    } catch (e) { setError(e.message); addToast('Scanner failed', 'error', e.message); }
+      const source = data.cached ? 'Cached results' : 'Live scan complete';
+      addToast(`${source} — ${data.picks?.length||0} picks found`, 'success', `${data.scanned || data.totalScanned} stocks in ${data.elapsed}s`);
+    } catch (e) {
+      const msg = e.message || 'Scanner is temporarily unavailable. Please retry.';
+      setError(msg);
+      addToast('Scanner failed', 'error', msg);
+    }
     finally { setLoading(false); }
   };
 
@@ -142,7 +147,7 @@ export default function Scanner() {
           <h1 className="page-ttl">Strategy Scanner</h1>
           <div className="page-sub">EMA 200 Breakout + ATR + Bollinger + CUSUM + ZigZag · NSE Large-Cap</div>
         </div>
-        <button className="btn btn-primary" onClick={run} disabled={loading}>
+        <button className="btn btn-primary" onClick={()=>run(true)} disabled={loading}>
           {loading ? <><span className="spinner spinner-sm"/> Scanning...</> : <><IconRefresh style={{ width:13,height:13 }}/> Run Scan</>}
         </button>
       </div>
@@ -165,11 +170,11 @@ export default function Scanner() {
 
       {/* Error */}
       {error && (
-        <div style={{ background:'var(--red-bg)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:8, padding:'13px 16px', marginBottom:14 }}>
+        <div className="error-panel" style={{ marginBottom:14 }}>
           <div style={{ color:'var(--red)', fontWeight:600, fontSize:13, marginBottom:4 }}>Scanner Error</div>
           <div style={{ color:'var(--red)', fontSize:11 }}>{error}</div>
-          <div style={{ color:'var(--muted)', fontSize:10, marginTop:6 }}>Yahoo Finance may be rate-limiting. Wait 60 seconds and try again.</div>
-          <button className="btn btn-danger btn-sm" onClick={run} style={{ marginTop:8 }}>Retry</button>
+          <div style={{ color:'var(--muted)', fontSize:10, marginTop:6 }}>The scanner now uses retries and cached market data. A retry usually succeeds once Yahoo allows the next request window.</div>
+          <button className="btn btn-danger btn-sm" onClick={()=>run(true)} style={{ marginTop:8 }} disabled={loading}>Retry</button>
         </div>
       )}
 
@@ -181,7 +186,7 @@ export default function Scanner() {
           <div style={{ fontSize:12, color:'var(--muted)', maxWidth:400, margin:'0 auto 20px', lineHeight:1.7 }}>
             Scans 25 NSE large-cap stocks. Applies EMA breakout, RSI momentum, ATR volatility, Bollinger squeeze, CUSUM regime detection, and ZigZag trend structure. Takes 15–25 seconds.
           </div>
-          <button className="btn btn-primary" onClick={run}><IconRefresh style={{ width:13,height:13 }}/> Run Scan Now</button>
+          <button className="btn btn-primary" onClick={()=>run(true)}><IconRefresh style={{ width:13,height:13 }}/> Run Scan Now</button>
         </div>
       )}
 
@@ -199,9 +204,11 @@ export default function Scanner() {
         <>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, padding:'10px 14px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10 }}>
             <div style={{ display:'flex', gap:22, fontSize:11 }}>
-              <span>Scanned <strong style={{ fontFamily:'JetBrains Mono' }}>{result.totalScanned}</strong></span>
+              <span>Scanned <strong style={{ fontFamily:'JetBrains Mono' }}>{result.scanned || result.totalScanned}</strong></span>
               <span>Passed <strong style={{ fontFamily:'JetBrains Mono', color:'var(--green)' }}>{result.picks?.length||0}</strong></span>
               <span>Time <strong style={{ fontFamily:'JetBrains Mono' }}>{result.elapsed}s</strong></span>
+              {result.cached && <span style={{ color:'var(--green)' }}>Cached</span>}
+              {result.partial && <span style={{ color:'var(--accent)' }}>Partial</span>}
               <span style={{ color:'var(--muted)' }}>{result.timestamp ? new Date(result.timestamp).toLocaleTimeString('en-IN') : ''}</span>
             </div>
             <div style={{ display:'flex', gap:6 }}>

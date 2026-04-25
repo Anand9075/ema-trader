@@ -3,17 +3,31 @@ import { marketAPI } from '../../api';
 
 export default function Ticker({ extraSymbols = [] }) {
   const [data, setData] = useState({});
+
   useEffect(() => {
-    const load = async () => { try { const r = await marketAPI.get(); if (r?.indices) setData(r.indices); } catch {} };
+    const load = async () => {
+      try { const r = await marketAPI.get(); if (r?.indices) setData(r.indices); }
+      catch {}
+    };
     load();
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, []);
 
-  const base = [{ symbol:'^NSEI',label:'NIFTY'},{ symbol:'^NSEBANK',label:'BANKNIFTY'}];
-  const items = [...base, ...extraSymbols.map(s => ({ symbol:s, label:s.replace('.NS','') }))].map(({ symbol, label }) => {
+  const base = [
+    { symbol:'^NSEI',    label:'NIFTY'     },
+    { symbol:'^NSEBANK', label:'BANKNIFTY' },
+  ];
+  const items = [
+    ...base,
+    ...extraSymbols.map(s => ({ symbol:s, label:s.replace('.NS','') })),
+  ].map(({ symbol, label }) => {
     const q = data[symbol];
-    return { label, price: q?.price ? q.price.toLocaleString('en-IN',{minimumFractionDigits:2}) : '—', changePct: q?.changePct || 0 };
+    return {
+      label,
+      price:     q?.price ? q.price.toLocaleString('en-IN', { minimumFractionDigits:2 }) : '—',
+      changePct: q?.changePct || 0,
+    };
   });
 
   const content = items.map((item, i) => (

@@ -1,142 +1,194 @@
 "use strict";
-const { allowCors }                    = require("../../lib/cors");
-const { connectDB, Trade, Alert, User }= require("../../lib/db");
-const  requireAuth                 = require("../../lib/auth");
-const { fetchQuote }                   = require("../../lib/yahoo");
-const { sendAlert }                    = require("../../lib/email");
+/**
+ * GET    /api/trades          → list all trades
+ * POST   /api/trades          → create trade
+ * PUT    /api/trades?id=X     → update trade
+ * DELETE /api/trades?id=X     → delete trade
+ * POST   /api/trades?action=close&id=X  → close trade
+ */
+const { allowCors }           = require("../lib/cors");
+const { connectDB, Trade, Alert } = require("../lib/db");
+const { fetchQuote }          = require("../lib/yahoo");
+const { sendTradeAlert }      = require("../lib/email");
 
-/* ── Alert checking after price update ── */
-async function checkAndFireAlerts(trade, AlertModel, userEmail, emailAlerts) {
-  const p    = trade.currentPrice;
-  if (!p)    return;
-  const fired = new Set(trade.alertsFired || []);
-  const toCreate = [];
+const STATUS_MAP = {
+  WAITING: "WAITING",
+  WAIT: "WAITING",
+  PENDING: "WAITING",
+  ACTIVE: "ACTIVE",
+  BOUGHT: "ACTIVE",
+  TARGET: "TARGET",
+  SL: "SL",
+  STOPLOSS: "SL",
+  "STOP LOSS": "SL",
+  MANUAL_EXIT: "MANUAL_EXIT",
+  MANUAL: "MANUAL_EXIT",
+  CLOSED: "CLOSED",
+};
 
-  if (trade.status === "WAITING" && p >= trade.entry * 0.995 && !fired.has("BUY")) {
-    toCreate.push({ type:"BUY", symbol:trade.name,
-      message:`Entry triggered — CMP ₹${p} ≥ entry ₹${trade.entry}`, severity:"INFO", price:p });
-    fired.add("BUY");
-  }
-  if (trade.status === "ACTIVE" && p >= trade.target && !fired.has("TARGET")) {
-    toCreate.push({ type:"TARGET", symbol:trade.name,
-      message:`Target hit! CMP ₹${p} ≥ target ₹${trade.target}. Book 50% profit.`, severity:"SUCCESS", price:p });
-    fired.add("TARGET");
-  }
-  if (["ACTIVE","WAITING"].includes(trade.status) && p <= trade.sl && !fired.has("SL")) {
-    toCreate.push({ type:"SL_HIT", symbol:trade.name,
-      message:`Stop loss hit. CMP ₹${p} ≤ SL ₹${trade.sl}. Exit now.`, severity:"DANGER", price:p });
-    fired.add("SL");
-  }
+function normalizeStatus(value) {
+  const key = String(value || "WAITING").trim().replace(/[\s-]+/g, "_").toUpperCase();
+  return STATUS_MAP[key] || "WAITING";
+}
 
-  for (const al of toCreate) {
-    try {
-      const created = await AlertModel.create({ ...al, userId: trade.userId });
-      if (emailAlerts && userEmail && ["TARGET","SL_HIT"].includes(al.type)) {
-        const sent = await sendAlert({ to: userEmail, ...al });
-        if (sent) await AlertModel.findByIdAndUpdate(created._id, { emailSent: true });
-      }
-    } catch (e) {
-      console.error("[Alerts] create failed:", e.message);
-    }
-  }
+function normalizeSymbol(rawName, rawSymbol) {
+  const source = String(rawSymbol || rawName || "").trim().toUpperCase();
+  if (!source) return "";
+  if (source.startsWith("^")) return source;
+  return source.includes(".") ? source : `${source}.NS`;
+}
 
-  if (fired.size > (trade.alertsFired || []).length) {
-    await Trade().findByIdAndUpdate(trade._id, { alertsFired: [...fired] });
+function normalizeTradePayload(body = {}) {
+  const symbol = normalizeSymbol(body.name, body.symbol);
+  const name = String(body.name || symbol || "").replace(".NS", "").trim().toUpperCase();
+  return {
+    ...body,
+    name,
+    symbol,
+    sector: String(body.sector || "Unknown").trim() || "Unknown",
+    status: normalizeStatus(body.status),
+    entryType: String(body.entryType || "BREAKOUT").trim().replace(/[\s-]+/g, "_").toUpperCase(),
+    confidence: String(body.confidence || "MEDIUM").trim().toUpperCase(),
+    entry: Number(body.entry),
+    sl: Number(body.sl),
+    target: Number(body.target),
+    target2: Number(body.target2) || 0,
+    qty: Number(body.qty) || 0,
+    currentPrice: Number(body.currentPrice) || 0,
+    ema200: Number(body.ema200) || 0,
+    ema50: Number(body.ema50) || 0,
+    rsi: Number(body.rsi) || 0,
+  };
+}
+
+function normalizeTradeUpdate(body = {}) {
+  const out = { ...body };
+  if (body.status !== undefined) out.status = normalizeStatus(body.status);
+  if (body.symbol !== undefined || body.name !== undefined) {
+    out.symbol = normalizeSymbol(body.name, body.symbol);
+    if (body.name !== undefined) out.name = String(body.name || out.symbol || "").replace(".NS", "").trim().toUpperCase();
   }
+  if (body.sector !== undefined) out.sector = String(body.sector || "Unknown").trim() || "Unknown";
+  if (body.entryType !== undefined) out.entryType = String(body.entryType || "BREAKOUT").trim().replace(/[\s-]+/g, "_").toUpperCase();
+  if (body.confidence !== undefined) out.confidence = String(body.confidence || "MEDIUM").trim().toUpperCase();
+  ["entry","sl","target","target2","qty","currentPrice","ema200","ema50","rsi","exitPrice"].forEach(k => {
+    if (body[k] !== undefined) out[k] = Number(body[k]) || 0;
+  });
+  return out;
 }
 
 async function handler(req, res) {
-  await connectDB();
-  const T  = Trade();
-  const AL = Alert();
-  const { id, action } = req.query;
+  try {
+    await connectDB();
+    const TradeModel = Trade();
+    const AlertModel = Alert();
+    const { id, action, status } = req.query;
 
-  /* ── GET: list trades ── */
-  if (req.method === "GET") {
-    const filter = { userId: req.userId };
-    if (req.query.status) filter.status = req.query.status;
-    const trades = await T.find(filter).sort({ createdAt: -1 }).lean();
-    return res.json(trades);
-  }
+    /* ── GET ─────────────────────────────────── */
+    if (req.method === "GET") {
+      const filter = status ? { status: normalizeStatus(status) } : {};
+      const trades = await TradeModel.find(filter).sort({ createdAt: -1 }).lean();
+      return res.json(trades);
+    }
 
-  /* ── POST: create or close ── */
-  if (req.method === "POST") {
-    // Close trade
-    if (action === "close" && id) {
-      const { exitPrice, result, exitDate } = req.body || {};
-      const trade = await T.findOneAndUpdate(
-        { _id: id, userId: req.userId },
-        { status: result || "MANUAL_EXIT", exitPrice: Number(exitPrice) || 0, closedAt: exitDate ? new Date(exitDate) : new Date() },
-        { new: true }
-      );
+    /* ── POST ────────────────────────────────── */
+    if (req.method === "POST") {
+      // Close trade
+      if (action === "close" && id) {
+        const { exitPrice, result } = req.body;
+        const trade = await TradeModel.findByIdAndUpdate(id, {
+          status:    normalizeStatus(result || "MANUAL_EXIT"),
+          exitPrice: Number(exitPrice) || 0,
+          closedAt:  new Date(),
+        }, { new: true, runValidators: false });
+        if (!trade) return res.status(404).json({ error: "Trade not found" });
+
+        const pl  = ((Number(exitPrice) - trade.entry) * (trade.qty || 0)).toFixed(0);
+        const msg = `${trade.name} closed at ₹${exitPrice} — ${trade.status} | P&L: ₹${pl}`;
+
+        await AlertModel.create({ type:"CLOSED", symbol:trade.name, message:msg,
+          severity: Number(exitPrice) >= trade.entry ? "SUCCESS" : "DANGER", price: Number(exitPrice) });
+        await sendTradeAlert({ type:"CLOSED", symbol:trade.name, price:exitPrice, message:msg });
+
+        return res.json(trade);
+      }
+
+      // Create trade
+      const body = normalizeTradePayload(req.body);
+      if (!body.name || !Number.isFinite(body.entry) || !Number.isFinite(body.sl) || !Number.isFinite(body.target)) {
+        return res.status(400).json({ error: "Stock, entry, stop loss and target are required." });
+      }
+      if (body.entry <= 0 || body.sl <= 0 || body.target <= 0) {
+        return res.status(400).json({ error: "Entry, stop loss and target must be greater than zero." });
+      }
+
+      // Fetch live price if not supplied; daily chart fallback keeps this Vercel-safe.
+      if (!body.currentPrice) {
+        try {
+          const q = await fetchQuote(body.symbol);
+          if (q?.price) body.currentPrice = q.price;
+        } catch (priceErr) {
+          console.warn("[Trades] Price fallback failed:", priceErr.message);
+        }
+      }
+
+      const trade = await TradeModel.create(body);
+      return res.status(201).json({ success: true, trade });
+    }
+
+    /* ── PUT ─────────────────────────────────── */
+    if (req.method === "PUT") {
+      if (!id) return res.status(400).json({ error: "id required" });
+      const body = normalizeTradeUpdate(req.body);
+      const trade = await TradeModel.findByIdAndUpdate(id, body, { new: true, runValidators: false });
       if (!trade) return res.status(404).json({ error: "Trade not found" });
 
-      const u   = await User().findById(req.userId).lean();
-      const pl  = ((Number(exitPrice) - trade.entry) * (trade.qty || 1)).toFixed(0);
-      const msg = `${trade.name} closed at ₹${exitPrice} — ${result} | P&L: ₹${pl}`;
-      const isWin = Number(exitPrice) >= trade.entry;
+      // Check alerts when price is updated
+      await checkAlertsForTrade(trade, AlertModel);
 
-      await AL.create({ userId: req.userId, type: "CLOSED", symbol: trade.name,
-        message: msg, severity: isWin ? "SUCCESS" : "DANGER", price: Number(exitPrice) });
-
-      if (u?.emailAlerts && u?.email) {
-        await sendAlert({ to: u.email, type: "CLOSED", symbol: trade.name,
-          price: exitPrice, message: msg });
-      }
       return res.json(trade);
     }
 
-    // Create trade
-    const body = req.body || {};
-    if (!body.entry || !body.sl || !body.target)
-      return res.status(400).json({ error: "entry, sl and target are required" });
-
-    body.userId  = req.userId;
-    body.name    = (body.name || body.symbol || "").replace(".NS", "").toUpperCase();
-    body.symbol  = body.symbol || `${body.name}.NS`;
-    body.qty     = Number(body.qty) || 1;
-
-    // Fetch live price if not provided
-    if (!body.currentPrice || body.currentPrice === 0) {
-      try {
-        const q = await fetchQuote(body.symbol);
-        if (q?.price) body.currentPrice = q.price;
-      } catch {}
+    /* ── DELETE ──────────────────────────────── */
+    if (req.method === "DELETE") {
+      if (!id) return res.status(400).json({ error: "id required" });
+      await TradeModel.findByIdAndDelete(id);
+      return res.json({ ok: true });
     }
 
-    const trade = await T.create(body);
-    return res.status(201).json(trade);
+    return res.status(405).json({ error: "Method not allowed" });
+  } catch (err) {
+    console.error("[Trades] Error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Position could not be saved.",
+      detail: err.message,
+      retryable: /timeout|network|rate|selection|server/i.test(err.message),
+    });
   }
-
-  /* ── PUT: update trade ── */
-  if (req.method === "PUT") {
-    if (!id) return res.status(400).json({ error: "id query param required" });
-    const trade = await T.findOneAndUpdate(
-      { _id: id, userId: req.userId },
-      req.body,
-      { new: true }
-    );
-    if (!trade) return res.status(404).json({ error: "Trade not found" });
-
-    // Check alerts on price update
-    if (req.body.currentPrice) {
-      try {
-        const u = await User().findById(req.userId).lean();
-        await checkAndFireAlerts(trade, AL, u?.email, u?.emailAlerts);
-      } catch (e) {
-        console.warn("[Alerts] check failed:", e.message);
-      }
-    }
-    return res.json(trade);
-  }
-
-  /* ── DELETE: remove trade ── */
-  if (req.method === "DELETE") {
-    if (!id) return res.status(400).json({ error: "id query param required" });
-    await T.findOneAndDelete({ _id: id, userId: req.userId });
-    return res.json({ ok: true });
-  }
-
-  return res.status(405).json({ error: "Method not allowed" });
 }
-module.exports = allowCors(requireAuth(handler));
+
+async function checkAlertsForTrade(trade, AlertModel) {
+  const p   = trade.currentPrice;
+  if (!p)   return;
+  const fired = new Set(trade.alertsFired || []);
+
+  if (trade.status === "WAITING" && p >= trade.entry * 0.995 && !fired.has("BUY")) {
+    const msg = `Entry triggered — price ₹${p} ≥ entry ₹${trade.entry}`;
+    await AlertModel.create({ type:"BUY", symbol:trade.name, message:msg, severity:"SUCCESS", price:p });
+    await sendTradeAlert({ type:"BUY", symbol:trade.name, price:p, message:msg });
+  }
+  if (trade.status === "ACTIVE" && p >= trade.target && !fired.has("TARGET")) {
+    const msg = `Target hit — ₹${p} ≥ ₹${trade.target}. Book 50% profit.`;
+    await AlertModel.create({ type:"TARGET", symbol:trade.name, message:msg, severity:"SUCCESS", price:p });
+    await sendTradeAlert({ type:"TARGET", symbol:trade.name, price:p, message:msg });
+  }
+  if (trade.status === "ACTIVE" && p <= trade.sl && !fired.has("SL")) {
+    const msg = `Stop loss hit — ₹${p} ≤ SL ₹${trade.sl}. Exit immediately.`;
+    await AlertModel.create({ type:"SL_HIT", symbol:trade.name, message:msg, severity:"DANGER", price:p });
+    await sendTradeAlert({ type:"SL_HIT", symbol:trade.name, price:p, message:msg });
+  }
+}
+
+module.exports = allowCors(handler);
+

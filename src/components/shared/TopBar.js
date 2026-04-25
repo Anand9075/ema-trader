@@ -47,9 +47,9 @@ export default function TopBar({ onStockSelect, alertCount = 0 }) {
     <div className="topbar">
       {/* Brand */}
       <div className="tb-brand">
-        <div className="tb-brand-icon">📈</div>
+        <div className="tb-brand-icon">EMA</div>
         <div>
-          <div className="tb-brand-name">EMA</div>
+          <div className="tb-brand-name">EMA Terminal</div>
           <div className="tb-brand-sub">Trading Terminal</div>
         </div>
       </div>

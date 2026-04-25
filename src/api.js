@@ -11,18 +11,37 @@ function getToken() { return localStorage.getItem('ema_token') || ''; }
 
 async function req(path, opts = {}) {
   const token  = getToken();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeout || 28000);
   const config = {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    signal: controller.signal,
     ...opts,
   };
+  delete config.timeout;
   if (opts.body && typeof opts.body !== 'string') config.body = JSON.stringify(opts.body);
   let res;
   try { res = await fetch(`${BASE}${path}`, config); }
-  catch (e) { throw new Error('Network error — check your connection'); }
+  catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out. Please retry.');
+    throw new Error('Network error. Please check your connection and retry.');
+  } finally {
+    clearTimeout(timeout);
+  }
   const ct   = res.headers.get('content-type') || '';
   const data = ct.includes('application/json') ? await res.json() : await res.text();
-  if (!res.ok) { const msg = (typeof data === 'object' ? data?.error : data) || `HTTP ${res.status}`; throw new Error(msg); }
+  if (!res.ok) {
+    const msg = (typeof data === 'object' ? (data?.error || data?.message) : data) || `HTTP ${res.status}`;
+    throw new Error(cleanApiError(msg));
+  }
   return data;
+}
+
+function cleanApiError(message = '') {
+  if (/FUNCTION_INVOCATION_FAILED/i.test(message) || message.includes('timeout')) {
+    return 'The server could not complete the request due to a timeout or rate limit. Please retry in a few seconds.';
+  }
+  return String(message).replace(/\s*bom1::[a-z0-9-]+/ig, '').trim();
 }
 
 export const authAPI      = {
@@ -51,7 +70,7 @@ export const alertsAPI    = {
   markRead:    id    => req(`/api/alerts?id=${id}`, { method: 'PUT' }),
   delete:      id    => req(`/api/alerts?id=${id}`, { method: 'DELETE' }),
 };
-export const scannerAPI   = { run: () => req('/api/scanner', { method: 'POST' }) };
+export const scannerAPI   = { run: (refresh = false) => req(`/api/scanner${refresh ? '?refresh=1' : ''}`, { method: 'POST', timeout: 26000 }) };
 export const searchAPI    = { query: q => req(`/api/search?q=${encodeURIComponent(q)}`) };
 export const pricesAPI    = { get: syms => req(`/api/prices?symbols=${syms.join(',')}`) };
 export const marketAPI    = { get: () => req('/api/market') };

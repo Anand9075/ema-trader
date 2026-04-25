@@ -2,7 +2,7 @@
 // BUG FIXED: now returns activeTrades as full array, not just a count
 const { allowCors }                   = require("../../lib/cors");
 const { connectDB, Trade, Snapshot }  = require("../../lib/db");
-const  requireAuth                  = require("../../lib/auth");
+const { requireAuth }                 = require("../../lib/auth");
 const { fetchQuotes }                 = require("../../lib/yahoo");
 
 async function handler(req, res) {

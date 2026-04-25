@@ -1,7 +1,7 @@
 "use strict";
 const { allowCors }       = require("../../lib/cors");
 const { connectDB, User } = require("../../lib/db");
-const  requireAuth      = require("../../lib/auth");
+const { requireAuth }     = require("../../lib/auth");
 
 async function handler(req, res) {
   await connectDB();

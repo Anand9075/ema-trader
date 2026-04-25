@@ -1,16 +1,14 @@
 "use strict";
+const { allowCors }  = require("../lib/cors");
+const { runScanner } = require("../lib/strategy");
+const { connectDB, Alert } = require("../lib/db");
 
-const { allowCors }           = require("../../lib/cors");
-const { connectDB, Alert }    = require("../../lib/db");
-// Removed {} around requireAuth to fix the "not a function" error
-const requireAuth             = require("../../lib/auth"); 
-const { runScanner }          = require("../../lib/strategy");
-
-function withTimeout(p, ms, msg) {
-  return Promise.race([
-    p,
-    new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms)),
-  ]);
+function withTimeout(promise, ms, msg) {
+  let timer;
+  const timeout = new Promise((_, reject) =>
+    timer = setTimeout(() => reject(new Error(msg)), ms)
+  );
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function handler(req, res) {
@@ -19,37 +17,40 @@ async function handler(req, res) {
   }
 
   try {
-    // Hard 26-second limit (Vercel function max is 30s)
-    const result = await withTimeout(
-      runScanner(),
-      26000,
-      "Scanner timed out after 26s — try again"
-    );
+    console.log("[Scanner] Starting scan...");
+    const result = await withTimeout(runScanner(), 25_000, "Scanner timed out. Please retry in a minute.");
 
-    // Save a selection alert for this user
-    if (result.picks?.length > 0) {
-      try {
-        await connectDB();
-        await Alert().create({
-          userId:   req.userId, // Populated by requireAuth middleware
+    // Persist a selection alert in DB (best-effort)
+    try {
+      await connectDB();
+      const AlertModel = Alert();
+      if (result.picks?.length > 0) {
+        await AlertModel.create({
           type:     "SELECTION",
           symbol:   "SCANNER",
-          message:  `Scan complete: ${result.picks.map(p => p.name).join(" | ")} (${result.elapsed}s)`,
+          message:  `Monthly picks: ${result.picks.map(p=>p.name).join(" | ")}`,
           severity: "INFO",
         });
-      } catch { /* non-fatal */ }
+      }
+    } catch (dbErr) {
+      console.warn("[Scanner] DB alert save failed (non-fatal):", dbErr.message);
     }
 
-    return res.json({ success: true, ...result });
-  } catch (e) {
-    console.error("[Scanner]", e.message);
-    return res.status(500).json({
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error("[Scanner] Error:", err);
+    return res.status(err.message.includes("timed out") ? 504 : 502).json({
       success: false,
-      error:   e.message,
-      hint:    "Yahoo Finance may be rate-limiting. Wait 60 seconds and try again.",
+      error: "Scanner is temporarily unavailable.",
+      detail: err.message,
+      retryable: true,
+      hint: "Market data provider is rate-limiting or slow. Retry after 60 seconds.",
     });
   }
 }
 
-// Export ONLY using CommonJS since you are using require() at the top
-module.exports = allowCors(requireAuth(handler));
+module.exports = allowCors(handler);
+

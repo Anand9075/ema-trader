@@ -1,81 +1,59 @@
-import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import './index.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { usePolling } from './hooks/usePolling';
 import { alertsAPI } from './api';
-
-import Login    from './components/auth/Login';
+import Sidebar from './components/shared/Sidebar';
+import TopBar from './components/shared/TopBar';
+import Ticker from './components/shared/Ticker';
+import Dashboard from './components/dashboard/Dashboard';
+import Portfolio from './components/portfolio/Portfolio';
+import Scanner from './components/scanner/Scanner';
+import Alerts from './components/alerts/Alerts';
+import History from './components/history/History';
+import Calendar from './components/history/Calendar';
+import Settings from './components/settings/Settings';
+import Login from './components/auth/Login';
 import Register from './components/auth/Register';
-import Sidebar  from './components/shared/Sidebar';
-import TopBar   from './components/shared/TopBar';
-import Ticker   from './components/shared/Ticker';
 
-import Dashboard  from './components/dashboard/Dashboard';
-import Portfolio  from './components/portfolio/Portfolio';
-import Scanner    from './components/scanner/Scanner';
-import Alerts     from './components/alerts/Alerts';
-import History    from './components/history/History';
-import Calendar   from './components/history/Calendar';
-import Settings   from './components/settings/Settings';
-
-/* ── Loading spinner shown while auth state resolves ── */
-function FullPageLoader() {
+function LoadingScreen() {
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#080d1a', flexDirection:'column', gap:14 }}>
-      <div style={{ width:44, height:44, background:'linear-gradient(135deg,#f59e0b,#d97706)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>📈</div>
-      <div style={{ width:24, height:24, border:'2px solid rgba(255,255,255,0.08)', borderTopColor:'#f59e0b', borderRadius:'50%', animation:'spin 0.7s linear infinite' }}/>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    <div className="loading-box" style={{ minHeight: '100vh' }}>
+      <div className="spinner" style={{ width: 34, height: 34 }} />
+      <div style={{ marginTop: 12, color: 'var(--text2)', fontWeight: 700 }}>Loading EMA Terminal...</div>
     </div>
   );
 }
 
-/* ── Protected shell — wraps all authenticated pages ── */
-function AppShell() {
+function ProtectedLayout() {
   const { user, loading } = useAuth();
-  const [extraTickers, setExtraTickers] = useState([]);
+  const { data: alerts = [] } = usePolling(() => alertsAPI.getAll(), 30000, []);
 
-  // Poll alerts globally for the unread badge in sidebar/topbar
-  const { data: alertData } = usePolling(() => alertsAPI.getAll(), 30000, []);
-  const unread = (alertData || []).filter(a => !a.read).length;
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
 
-  if (loading) return <FullPageLoader/>;
-  if (!user)   return <Navigate to="/login" replace/>;
-
-  const handleStockSelect = stock => {
-    if (stock?.symbol && !extraTickers.includes(stock.symbol)) {
-      setExtraTickers(prev => [...prev.slice(-4), stock.symbol]);
-    }
-  };
+  const unread = Array.isArray(alerts) ? alerts.filter(a => !a.read).length : 0;
 
   return (
     <div className="app-shell">
-      <Sidebar alertCount={unread}/>
-      <div className="main-area">
-        <TopBar onStockSelect={handleStockSelect} alertCount={unread}/>
-        <Ticker extraSymbols={extraTickers}/>
-        <div className="page-body">
-          <Routes>
-            <Route path="/"          element={<Dashboard/>}/>
-            <Route path="/portfolio" element={<Portfolio/>}/>
-            <Route path="/scanner"   element={<Scanner/>}/>
-            <Route path="/alerts"    element={<Alerts/>}/>
-            <Route path="/history"   element={<History/>}/>
-            <Route path="/calendar"  element={<Calendar/>}/>
-            <Route path="/settings"  element={<Settings/>}/>
-            <Route path="*"          element={<Navigate to="/" replace/>}/>
-          </Routes>
-        </div>
+      <Sidebar />
+      <div className="app-main">
+        <TopBar alertCount={unread} />
+        <Ticker />
+        <main className="page-wrap">
+          <Outlet />
+        </main>
       </div>
     </div>
   );
 }
 
-/* ── Auth gate — redirects logged-in users away from /login ── */
-function AuthGate({ children }) {
+function PublicOnly({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <FullPageLoader/>;
-  if (user)    return <Navigate to="/" replace/>;
+  if (loading) return <LoadingScreen />;
+  if (user) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -85,9 +63,18 @@ export default function App() {
       <ToastProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login"    element={<AuthGate><Login/></AuthGate>}/>
-            <Route path="/register" element={<AuthGate><Register/></AuthGate>}/>
-            <Route path="/*"        element={<AppShell/>}/>
+            <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+            <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/portfolio" element={<Portfolio />} />
+              <Route path="/scanner" element={<Scanner />} />
+              <Route path="/alerts" element={<Alerts />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>
